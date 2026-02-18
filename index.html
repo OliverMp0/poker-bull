@@ -1,0 +1,110 @@
+<!doctype html>  
+<html lang="en">  
+  <head>  
+    <meta charset="UTF-8" />  
+    <meta name="viewport" content="width=device-width,initial-scale=1.0" />  
+    <title>Poker Bull (kicker version)</title>  
+  </head>  
+  <body>  
+    <div id="app">  
+      <canvas id="c"></canvas>  
+  
+      <div id="hud">  
+        <div id="topbar">  
+          <div>  
+            <div class="label">Current turn</div>  
+            <div id="turn"></div>  
+          </div>  
+          <div>  
+            <div class="label">Dealer</div>  
+            <div id="dealer"></div>  
+          </div>  
+          <div>  
+            <div class="label">Last call</div>  
+            <div id="lastCall"></div>  
+          </div>  
+        </div>  
+  
+        <div id="controls">  
+          <button id="raiseBtn" disabled>Raise</button>  
+          <button id="challengeBtn" disabled>Challenge</button>  
+        </div>  
+  
+        <div id="sidebar">  
+          <div class="col">  
+            <div class="label">Your hand</div>  
+            <div id="yourHand" class="mono"></div>  
+            <div class="label" style="margin-top:10px;">Bots</div>  
+            <div id="bots" class="mono"></div>  
+          </div>  
+  
+          <div class="col">  
+            <div class="label">Call history</div>  
+            <div id="history" class="mono"></div>  
+          </div>  
+        </div>  
+  
+        <div id="continueOverlay" class="hidden">
+          <div id="continueHint">Click anywhere to continue…</div>
+        </div>
+
+        <div id="announcement"></div>
+
+        <div id="startOverlay">  
+          <div class="card">  
+            <div class="title">Poker Bull (kicker version, no straights/flushes)</div>  
+            <div class="row">  
+              <label>Players (you + bots)</label>  
+              <select id="playerCount">  
+                <option>3</option><option>4</option><option selected>6</option><option>7</option><option>8</option>  
+              </select>  
+            </div>  
+            <button id="startBtn">Start</button>  
+            <div class="hint">  
+              No passing. On your turn: Raise (make a strictly higher call) or Challenge.  
+            </div>  
+          </div>  
+        </div>  
+  
+        <div id="raiseModal" class="modal hidden">  
+          <div class="card">  
+            <div class="title">Make a call</div>  
+  
+            <div class="grid">  
+              <label>Type</label>  
+              <select id="callType"></select>  
+  
+              <label id="p1Label"></label>  
+              <select id="p1"></select>  
+  
+              <label id="p2Label" class="hidden"></label>  
+              <select id="p2" class="hidden"></select>  
+  
+              <label id="k1Label"></label>  
+              <select id="k1"></select>  
+  
+              <label id="k2Label"></label>  
+              <select id="k2"></select>  
+  
+              <label id="k3Label"></label>  
+              <select id="k3"></select>  
+  
+              <label id="k4Label"></label>  
+              <select id="k4"></select>  
+            </div>  
+  
+            <div class="row" style="justify-content:flex-end; gap:10px; margin-top:12px;">  
+              <button id="cancelRaise">Cancel</button>  
+              <button id="submitRaise">Submit raise</button>  
+            </div>  
+  
+            <div id="raiseError" class="error mono"></div>  
+          </div>  
+        </div>  
+  
+      </div>  
+    </div>  
+  
+    <script type="module" src="/src/main.ts"></script>  
+  </body>  
+</html>  
