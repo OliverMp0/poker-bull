@@ -141,7 +141,7 @@ export function doChallenge(gs: GameState, challengerIndex: number): { ok: true 
   if (gs.round.reveal) return { ok: false, error: "Round is resolving." };  
   if (gs.round.turnIndex !== challengerIndex) return { ok: false, error: "Not your turn." };  
   if (!gs.round.lastCall || gs.round.lastCallerIndex === null) {  
-    return { ok: false, error: "Nothing to challenge yet." };  
+    return { ok: false, error: "Nothing to call bullshit on yet." };  
   }  
   
   const allCards = activeIndices(gs.players).flatMap(i => gs.players[i].hand);  
@@ -151,8 +151,8 @@ export function doChallenge(gs: GameState, challengerIndex: number): { ok: true 
   gs.round.reveal = { allCards, satisfied, loserIndex };  
   
   gs.round.history.push(  
-    `${gs.players[challengerIndex].id} challenges ${gs.players[gs.round.lastCallerIndex].id} -> ` +  
-    (satisfied ? `CALL TRUE` : `CALL FALSE`)  
+    `${gs.players[challengerIndex].id} calls bullshit on ${gs.players[gs.round.lastCallerIndex].id} -> ` +  
+    (satisfied ? `I WAS TRUE!` : `IT WAS A LIE!`)  
   );  
   return { ok: true };  
 }  

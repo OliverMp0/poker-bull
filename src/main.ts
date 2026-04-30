@@ -1,7 +1,7 @@
 import "./style.css";  
   
 import type { Call, CallKind, GameState, Rank } from "./game/types";  
-import { newGame, doRaise, doChallenge, resolveRevealAndNextRound, activeIndices } from "./game/engine";  
+import { newGame, doRaise, doChallenge, resolveRevealAndNextRound } from "./game/engine";  
 import { callToString, isStructurallyValidCall, RANKS_DESC } from "./game/calls";  
 import { generateAllCallsSorted } from "./game/allCalls";  
 import { chooseBotAction } from "./bot/simpleBot";  
@@ -20,8 +20,6 @@ let pendingContinue: (() => void) | null = null;
 const turnEl = document.getElementById("turn")!;  
 const dealerEl = document.getElementById("dealer")!;  
 const lastCallEl = document.getElementById("lastCall")!;  
-const yourHandEl = document.getElementById("yourHand")!;  
-const botsEl = document.getElementById("bots")!;  
 const historyEl = document.getElementById("history")!;  
   
 const raiseBtn = document.getElementById("raiseBtn") as HTMLButtonElement;  
@@ -154,17 +152,6 @@ function syncUI() {
   dealerEl.textContent = dealerP.id;  
   lastCallEl.textContent = gs.round.lastCall ? callToString(gs.round.lastCall) : "(none)";  
   
-  yourHandEl.textContent = gs.players[0].hand.map(cardText).join("  ");  
-  
-  const act = activeIndices(gs.players);  
-  const lines: string[] = [];  
-  for (const i of act) {  
-    const p = gs.players[i];  
-    if (p.isHuman) continue;  
-    lines.push(`${p.id}: cards=${p.hand.length} losses=${p.losses}`);  
-  }  
-  botsEl.textContent = lines.join("\n");  
-  
   historyEl.textContent = gs.round.history.slice(-40).join("\n");  
   historyEl.scrollTop = historyEl.scrollHeight;  
   
@@ -178,12 +165,6 @@ function syncUI() {
     raiseBtn.disabled = true;  
     challengeBtn.disabled = true;  
   }  
-}  
-  
-function cardText(c: { rank: Rank; suit: string }) {  
-  const r = (c.rank === 14 ? "A" : c.rank === 13 ? "K" : c.rank === 12 ? "Q" : c.rank === 11 ? "J" : String(c.rank));  
-  const s = c.suit === "S" ? "♠" : c.suit === "H" ? "♥" : c.suit === "D" ? "♦" : "♣";  
-  return `${r}${s}`;  
 }  
   
 // --- bot loop + reveal handling ---  
@@ -216,7 +197,7 @@ function tickBots() {
     const action = chooseBotAction(gs, ti, allCallsSorted);  
     if (action.type === "CHALLENGE") {  
       doChallenge(gs, ti);  
-      showAnnouncement(`${p.id} challenges!`, 1800);
+      showAnnouncement(`${p.id} calls bullshit!`, 1800);
       syncUI();
       // Merge reveal into a single continue click
       showContinue(() => {

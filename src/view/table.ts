@@ -1,193 +1,235 @@
-import * as THREE from "three";  
-import type { Card, GameState, Suit } from "../game/types";  
-import { rankLabel } from "../game/calls";  
-import { activeIndices } from "../game/engine";  
-  
-type CardMesh = THREE.Mesh<THREE.PlaneGeometry, THREE.MeshStandardMaterial>;  
-  
-function suitSymbol(s: Suit): string {  
-  if (s === "C") return "♣";  
-  if (s === "D") return "♦";  
-  if (s === "H") return "♥";  
-  return "♠";  
-}  
-function suitColor(s: Suit): string {  
-  return (s === "D" || s === "H") ? "#ef4444" : "#111827";  
-}  
-  
-function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {  
-  ctx.beginPath();  
-  ctx.moveTo(x + r, y);  
-  ctx.arcTo(x + w, y, x + w, y + h, r);  
-  ctx.arcTo(x + w, y + h, x, y + h, r);  
-  ctx.arcTo(x, y + h, x, y, r);  
-  ctx.arcTo(x, y, x + w, y, r);  
-  ctx.closePath();  
-}  
-  
-function makeCardTextureFace(card: Card): THREE.Texture {  
-  const w = 256, h = 356;  
-  const cv = document.createElement("canvas");  
-  cv.width = w; cv.height = h;  
-  const g = cv.getContext("2d")!;  
-  
-  g.fillStyle = "#f8fafc";  
-  g.strokeStyle = "rgba(2,6,23,.18)";  
-  g.lineWidth = 6;  
-  roundRect(g, 10, 10, w - 20, h - 20, 22);  
-  g.fill();  
-  g.stroke();  
-  
-  const r = rankLabel(card.rank);  
-  const s = suitSymbol(card.suit);  
-  
-  g.fillStyle = suitColor(card.suit);  
-  g.font = "bold 46px ui-sans-serif, system-ui";  
-  g.textAlign = "left";  
-  g.textBaseline = "alphabetic";  
-  g.fillText(r, 22, 60);  
-  
-  g.font = "bold 40px ui-sans-serif, system-ui";  
-  g.fillText(s, 24, 104);  
-  
-  g.font = "bold 130px ui-sans-serif, system-ui";  
-  g.textAlign = "center";  
-  g.textBaseline = "middle";  
-  g.fillText(s, w / 2, h / 2 + 6);  
-  
-  const tex = new THREE.CanvasTexture(cv);  
-  tex.colorSpace = THREE.SRGBColorSpace;  
-  tex.anisotropy = 4;  
-  return tex;  
-}  
-  
-function makeCardTextureBack(): THREE.Texture {  
-  const w = 256, h = 356;  
-  const cv = document.createElement("canvas");  
-  cv.width = w; cv.height = h;  
-  const g = cv.getContext("2d")!;  
-  
-  g.fillStyle = "#0b1220";  
-  g.strokeStyle = "rgba(255,255,255,.18)";  
-  g.lineWidth = 6;  
-  roundRect(g, 10, 10, w - 20, h - 20, 22);  
-  g.fill();  
-  g.stroke();  
-  
-  g.strokeStyle = "rgba(56, 189, 248, .28)";  
-  g.lineWidth = 3;  
-  for (let y = 34; y < h - 34; y += 18) {  
-    g.beginPath();  
-    g.moveTo(30, y);  
-    g.lineTo(w - 30, y);  
-    g.stroke();  
-  }  
-  
-  g.fillStyle = "rgba(255,255,255,.82)";  
-  g.font = "bold 34px ui-sans-serif, system-ui";  
-  g.textAlign = "center";  
-  g.textBaseline = "middle";  
-  g.fillText("POKER", w/2, h/2 - 18);  
-  g.fillText("BULL", w/2, h/2 + 20);  
-  
-  const tex = new THREE.CanvasTexture(cv);  
-  tex.colorSpace = THREE.SRGBColorSpace;  
-  tex.anisotropy = 4;  
-  return tex;  
-}  
-  
-export class TableView {  
-  private renderer: THREE.WebGLRenderer;  
-  private scene: THREE.Scene;  
-  private camera: THREE.PerspectiveCamera;  
-  
-  private backTex = makeCardTextureBack();  
-  private faceTexCache = new Map<string, THREE.Texture>();  
-  
-  private cardsGroup = new THREE.Group();  
-  private dealerMarker: THREE.Mesh;  
-  private dirty = true;  
-  private lastGs: GameState | null = null;  
-  
-  constructor(private canvas: HTMLCanvasElement) {  
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });  
-    this.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio));  
-    this.renderer.outputColorSpace = THREE.SRGBColorSpace;  
-  
-    this.scene = new THREE.Scene();  
-    this.scene.background = new THREE.Color("#070a0f");  
-  
-    this.camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);  
-    this.camera.position.set(0, 7.2, 10.5);  
-    this.camera.lookAt(0, 0, 0);  
-  
-    const hemi = new THREE.HemisphereLight(0xbfd7ff, 0x0b0f14, 1.1);  
-    this.scene.add(hemi);  
-  
-    const dir = new THREE.DirectionalLight(0xffffff, 0.85);  
-    dir.position.set(6, 9, 5);  
-    this.scene.add(dir);  
-  
-    const table = new THREE.Mesh(  
-      new THREE.CylinderGeometry(6.2, 6.2, 0.6, 64),  
-      new THREE.MeshStandardMaterial({ color: 0x0f3d2e, roughness: 0.92, metalness: 0.04 })  
-    );  
-    table.position.y = -0.35;  
-    this.scene.add(table);  
-  
-    const rim = new THREE.Mesh(  
-      new THREE.TorusGeometry(6.25, 0.18, 16, 128),  
-      new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.45, metalness: 0.25 })  
-    );  
-    rim.rotation.x = Math.PI / 2;  
-    rim.position.y = -0.05;  
-    this.scene.add(rim);  
-  
-    // subtle center decal  
-    const decal = new THREE.Mesh(  
-      new THREE.CircleGeometry(2.1, 48),  
-      new THREE.MeshStandardMaterial({ color: 0x0b2f24, roughness: 1.0, metalness: 0.0 })  
-    );  
-    decal.rotation.x = -Math.PI / 2;  
-    decal.position.y = -0.04;  
-    this.scene.add(decal);  
-  
-    // dealer marker  
-    this.dealerMarker = new THREE.Mesh(  
-      new THREE.CylinderGeometry(0.26, 0.26, 0.06, 24),  
-      new THREE.MeshStandardMaterial({ color: 0xfbbf24, roughness: 0.35, metalness: 0.2 })  
-    );  
-    this.dealerMarker.position.y = 0.02;  
-    this.scene.add(this.dealerMarker);  
-  
-    this.scene.add(this.cardsGroup);  
-  
-    window.addEventListener("resize", () => this.resize());  
-    this.resize();  
-  }  
-  
-  setState(gs: GameState | null) {  
-    this.lastGs = gs;  
-    this.dirty = true;  
-  }  
-  
-  private resize() {  
-    const w = this.canvas.clientWidth;  
-    const h = this.canvas.clientHeight;  
-    this.camera.aspect = w / h;  
-    this.camera.updateProjectionMatrix();  
-    this.renderer.setSize(w, h, false);  
-  }  
-  
-  private getFaceTex(card: Card): THREE.Texture {  
-    const key = `${card.rank}${card.suit}`;  
-    const hit = this.faceTexCache.get(key);  
-    if (hit) return hit;  
-    const tex = makeCardTextureFace(card);  
-    this.faceTexCache.set(key, tex);  
-    return tex;  
-  }  
-  
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import type { Card, GameState, Suit } from "../game/types";
+import { rankLabel } from "../game/calls";
+import { activeIndices } from "../game/engine";
+
+type CardMesh = THREE.Mesh<THREE.PlaneGeometry, THREE.MeshStandardMaterial>;
+
+function suitSymbol(s: Suit): string {
+  if (s === "C") return "♣";
+  if (s === "D") return "♦";
+  if (s === "H") return "♥";
+  return "♠";
+}
+function suitColor(s: Suit): string {
+  return (s === "D" || s === "H") ? "#ef4444" : "#111827";
+}
+
+function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+function makeCardTextureFace(card: Card): THREE.Texture {
+const w = 768, h = 1068;
+const cv = document.createElement("canvas");
+  cv.width = w; cv.height = h;
+  const g = cv.getContext("2d")!;
+
+  g.fillStyle = "#f8fafc";
+  g.strokeStyle = "rgba(2,6,23,.25)";
+  g.lineWidth = 10;
+  roundRect(g, 16, 16, w - 32, h - 32, 36);
+  g.fill();
+  g.stroke();
+
+  const r = rankLabel(card.rank);
+  const s = suitSymbol(card.suit);
+
+  // Top-left corner
+  g.fillStyle = suitColor(card.suit);
+  g.font = "bold 120px ui-sans-serif, system-ui";
+  g.textAlign = "left";
+  g.textBaseline = "alphabetic";
+  g.fillText(r, 60, 165);
+
+  g.font = "bold 108px ui-sans-serif, system-ui";
+  g.fillText(s, 63, 279);
+
+  // Large center rank + suit
+  g.font = "bold 270px ui-sans-serif, system-ui";
+  g.textAlign = "center";
+  g.textBaseline = "middle";
+  g.fillText(r, w / 2, h / 2 - 60);
+
+  g.font = "bold 210px ui-sans-serif, system-ui";
+  g.fillText(s, w / 2, h / 2 + 150);
+
+  const tex = new THREE.CanvasTexture(cv);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 16;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  return tex;
+}
+
+function makeCardTextureBack(): THREE.Texture {
+const w = 768, h = 1068;
+  const cv = document.createElement("canvas");
+  cv.width = w; cv.height = h;
+  const g = cv.getContext("2d")!;
+
+  g.fillStyle = "#0b1220";
+  g.strokeStyle = "rgba(255,255,255,.18)";
+  g.lineWidth = 10;
+  roundRect(g, 16, 16, w - 32, h - 32, 36);
+  g.fill();
+  g.stroke();
+
+  g.strokeStyle = "rgba(56, 189, 248, .28)";
+  g.lineWidth = 4;
+  for (let y = 60; y < h - 60; y += 28) {
+    g.beginPath();
+    g.moveTo(50, y);
+    g.lineTo(w - 50, y);
+    g.stroke();
+  }
+
+  g.fillStyle = "rgba(255,255,255,.82)";
+  g.font = "bold 60px ui-sans-serif, system-ui";
+  g.textAlign = "center";
+  g.textBaseline = "middle";
+  g.fillText("POKER", w/2, h/2 - 32);
+  g.fillText("BULL", w/2, h/2 + 36);
+
+  const tex = new THREE.CanvasTexture(cv);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 16;
+  tex.minFilter = THREE.LinearMipmapLinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  return tex;
+}
+
+export class TableView {
+  private renderer: THREE.WebGLRenderer;
+  private scene: THREE.Scene;
+  private camera: THREE.PerspectiveCamera;
+
+  private backTex = makeCardTextureBack();
+  private faceTexCache = new Map<string, THREE.Texture>();
+
+  private cardsGroup = new THREE.Group();
+  private dealerMarker: THREE.Mesh;
+  private controls!: OrbitControls;
+  private dirty = true;
+  private lastGs: GameState | null = null;
+
+  constructor(private canvas: HTMLCanvasElement) {
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    this.renderer.setPixelRatio(Math.min(3, window.devicePixelRatio));
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+    this.scene = new THREE.Scene();
+    this.scene.background = new THREE.Color("#070a0f");
+
+    this.camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100);
+    this.camera.position.set(0, 9.2, 11.8);
+    this.camera.lookAt(0, 0, -0.6);
+
+    const hemi = new THREE.HemisphereLight(0xbfd7ff, 0x0b0f14, 1.1);
+    this.scene.add(hemi);
+
+    const dir = new THREE.DirectionalLight(0xffffff, 0.85);
+    dir.position.set(6, 9, 5);
+    this.scene.add(dir);
+
+    const table = new THREE.Mesh(
+      new THREE.CylinderGeometry(6.2, 6.2, 0.6, 64),
+      new THREE.MeshStandardMaterial({ color: 0x0f3d2e, roughness: 0.92, metalness: 0.04 })
+    );
+    table.position.y = -0.35;
+    this.scene.add(table);
+
+    const rim = new THREE.Mesh(
+      new THREE.TorusGeometry(6.25, 0.18, 16, 128),
+      new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.45, metalness: 0.25 })
+    );
+    rim.rotation.x = Math.PI / 2;
+    rim.position.y = -0.05;
+    this.scene.add(rim);
+
+    // subtle center decal
+    const decal = new THREE.Mesh(
+      new THREE.CircleGeometry(2.1, 48),
+      new THREE.MeshStandardMaterial({ color: 0x0b2f24, roughness: 1.0, metalness: 0.0 })
+    );
+    decal.rotation.x = -Math.PI / 2;
+    decal.position.y = -0.04;
+    this.scene.add(decal);
+
+    // dealer marker
+    this.dealerMarker = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.26, 0.26, 0.06, 24),
+      new THREE.MeshStandardMaterial({ color: 0xfbbf24, roughness: 0.35, metalness: 0.2 })
+    );
+    this.dealerMarker.position.y = 0.02;
+    this.scene.add(this.dealerMarker);
+
+    this.scene.add(this.cardsGroup);
+
+    // Camera controls: rotate (drag/1-finger), zoom (wheel/pinch), constrained
+    this.controls = new OrbitControls(this.camera, this.canvas);
+    this.controls.target.set(0, 0, -0.6);
+    this.controls.enableDamping = true;
+    this.controls.dampingFactor = 0.08;
+    this.controls.enablePan = false;
+    this.controls.minDistance = 7;
+    this.controls.maxDistance = 22;
+    this.controls.minPolarAngle = 0.15;             // don't go fully top-down
+    this.controls.maxPolarAngle = Math.PI * 0.46;   // don't go below table
+    this.controls.rotateSpeed = 0.6;
+    this.controls.zoomSpeed = 0.9;
+    this.controls.touches = {
+      ONE: THREE.TOUCH.ROTATE,
+      TWO: THREE.TOUCH.DOLLY_PAN,
+    };
+    this.controls.update();
+
+    window.addEventListener("resize", () => this.resize());
+    this.resize();
+  }
+
+  setState(gs: GameState | null) {
+    this.lastGs = gs;
+    this.dirty = true;
+  }
+
+  private resize() {
+    const w = this.canvas.clientWidth;
+    const h = this.canvas.clientHeight;
+    const aspect = w / h;
+    this.camera.aspect = aspect;
+
+    // Adapt FOV/distance so all seats fit on narrow/portrait screens.
+    if (aspect < 1) {
+      // portrait — pull back further and widen FOV a touch
+      this.camera.fov = 52;
+      const dir = this.camera.position.clone().sub(this.controls?.target ?? new THREE.Vector3(0, 0, -0.6)).normalize();
+      const dist = 15;
+      const target = this.controls?.target ?? new THREE.Vector3(0, 0, -0.6);
+      this.camera.position.copy(target).add(dir.multiplyScalar(dist));
+    } else {
+      this.camera.fov = 42;
+    }
+    this.camera.updateProjectionMatrix();
+    this.renderer.setSize(w, h, false);
+  }
+
+  private getFaceTex(card: Card): THREE.Texture {
+    const key = `${card.rank}${card.suit}`;
+    const hit = this.faceTexCache.get(key);
+    if (hit) return hit;
+    const tex = makeCardTextureFace(card);
+    this.faceTexCache.set(key, tex);
+    return tex;
+  }
+
   private rebuildFromState(gs: GameState) {
     // clear cards
     while (this.cardsGroup.children.length) {
@@ -273,32 +315,33 @@ export class TableView {
         this.cardsGroup.add(mesh);
       }
     }
-  }  
-  
-  private playerAnchorPosition(gs: GameState, playerIndex: number, n: number, act: number[]): THREE.Vector3 {  
-    const seat = act.indexOf(playerIndex);  
-    const ang = seatAngle(seat, n);  
-  
-    // human seat at bottom (towards camera)  
-    const radius = 4.7;  
-    const x = Math.sin(ang) * radius;  
-    const z = Math.cos(ang) * radius;  
-  
-    // rotate table so seat 0 appears at bottom: we define seat 0 as human if present  
-    // We'll place "act[0]" at bottom by rotating angles by PI (so z is negative).  
-    return new THREE.Vector3(x, 0, -z);  
-  }  
-  
-  frame() {  
-    if (this.lastGs && this.dirty) {  
-      this.rebuildFromState(this.lastGs);  
-      this.dirty = false;  
-    }  
-    this.renderer.render(this.scene, this.camera);  
-  }  
-}  
-  
-function seatAngle(seat: number, n: number): number {  
-  // seat 0 at PI (bottom, near camera); others spread around  
-  return Math.PI + (seat / n) * Math.PI * 2;  
-}  
+  }
+
+  private playerAnchorPosition(gs: GameState, playerIndex: number, n: number, act: number[]): THREE.Vector3 {
+    const seat = act.indexOf(playerIndex);
+    const ang = seatAngle(seat, n);
+
+    // human seat at bottom (towards camera)
+    const radius = 4.7;
+    const x = Math.sin(ang) * radius;
+    const z = Math.cos(ang) * radius;
+
+    // rotate table so seat 0 appears at bottom: we define seat 0 as human if present
+    // We'll place "act[0]" at bottom by rotating angles by PI (so z is negative).
+    return new THREE.Vector3(x, 0, -z);
+  }
+
+  frame() {
+    if (this.lastGs && this.dirty) {
+      this.rebuildFromState(this.lastGs);
+      this.dirty = false;
+    }
+    this.controls?.update();
+    this.renderer.render(this.scene, this.camera);
+  }
+}
+
+function seatAngle(seat: number, n: number): number {
+  // seat 0 at PI (bottom, near camera); others spread around
+  return Math.PI + (seat / n) * Math.PI * 2;
+}

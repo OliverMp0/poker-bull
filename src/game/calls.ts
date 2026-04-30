@@ -10,22 +10,57 @@ export function rankLabel(r: Rank): string {
   return String(r);  
 }  
   
-export function callToString(c: Call): string {  
-  switch (c.kind) {  
-    case "SINGLE":  
-      return `High card ${rankLabel(c.rank)}${c.kickers.length ? `, kickers ${c.kickers.map(rankLabel).join(",")}` : ""}`;  
-    case "PAIR":  
-      return `Pair ${rankLabel(c.rank)}${c.kickers.length ? `, kickers ${c.kickers.map(rankLabel).join(",")}` : ""}`;  
-    case "TWO_PAIR":  
-      return `Two pair ${rankLabel(c.high)} & ${rankLabel(c.low)}${c.kicker ? ` + ${rankLabel(c.kicker)}` : ""}`;  
-    case "TRIPS":  
-      return `Trips ${rankLabel(c.rank)}${c.kickers.length ? `, kickers ${c.kickers.map(rankLabel).join(",")}` : ""}`;  
-    case "FULL_HOUSE":  
-      return `${rankLabel(c.trips)} full of ${rankLabel(c.pair)}`;  
-    case "QUADS":  
-      return `Quads ${rankLabel(c.rank)}${c.kicker ? ` + ${rankLabel(c.kicker)}` : ""}`;  
-  }  
-}  
+function joinParts(parts: string[]): string {
+  if (parts.length === 0) return "";
+  if (parts.length === 1) return parts[0];
+  return parts.slice(0, -1).join(", ") + " and " + parts[parts.length - 1];
+}
+
+function singleCardPhrase(r: Rank): string {
+  const label = rankLabel(r);
+  const article = /^[a8]/i.test(label) ? "an" : "a";
+  return `${article} ${label}`;
+}
+
+export function callToString(c: Call): string {
+  switch (c.kind) {
+    case "SINGLE": {
+      if (c.kickers.length === 0) return singleCardPhrase(c.rank);
+      return joinParts([
+        singleCardPhrase(c.rank),
+        ...c.kickers.map(singleCardPhrase),
+      ]);
+    }
+    case "PAIR": {
+      const main = `a pair of ${rankLabel(c.rank)}s`;
+      if (c.kickers.length === 0) return main;
+      return joinParts([main, ...c.kickers.map(singleCardPhrase)]);
+    }
+    case "TWO_PAIR": {
+      const parts = [
+        `a pair of ${rankLabel(c.high)}s`,
+        `a pair of ${rankLabel(c.low)}s`,
+      ];
+      if (c.kicker) parts.push(singleCardPhrase(c.kicker));
+      return joinParts(parts);
+    }
+    case "TRIPS": {
+      const main = `three ${rankLabel(c.rank)}s`;
+      if (c.kickers.length === 0) return main;
+      return joinParts([main, ...c.kickers.map(singleCardPhrase)]);
+    }
+    case "FULL_HOUSE":
+      return joinParts([
+        `three ${rankLabel(c.trips)}s`,
+        `a pair of ${rankLabel(c.pair)}s`,
+      ]);
+    case "QUADS": {
+      const main = `four ${rankLabel(c.rank)}s`;
+      if (!c.kicker) return main;
+      return joinParts([main, singleCardPhrase(c.kicker)]);
+    }
+  }
+}
   
 export function kickerSlots(kind: CallKind): number {  
   switch (kind) {  
