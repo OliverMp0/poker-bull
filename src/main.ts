@@ -34,6 +34,12 @@ const historyEl = document.getElementById("history")!;
   
 const raiseBtn = document.getElementById("raiseBtn") as HTMLButtonElement;  
 const challengeBtn = document.getElementById("challengeBtn") as HTMLButtonElement;  
+const rulesBtn = document.getElementById("rulesBtn") as HTMLButtonElement;
+const startRulesBtn = document.getElementById("startRulesBtn") as HTMLButtonElement;
+const rulesModal = document.getElementById("rulesModal")!;
+const closeRulesBtn = document.getElementById("closeRules") as HTMLButtonElement;
+const closeRulesFooterBtn = document.getElementById("closeRulesFooter") as HTMLButtonElement;
+let rulesTrigger: HTMLButtonElement = rulesBtn;
   
 // Start overlay  
 const startOverlay = document.getElementById("startOverlay")!;  
@@ -104,6 +110,28 @@ startBtn.onclick = () => {
 hostBtn.onclick = () => hostOnlineRoom();
 joinBtn.onclick = () => joinOnlineRoom();
 startOnlineBtn.onclick = () => startHostedGame();
+
+function openRules(trigger: HTMLButtonElement): void {
+  rulesTrigger = trigger;
+  rulesModal.classList.remove("hidden");
+  closeRulesBtn.focus();
+}
+
+function closeRules(): void {
+  rulesModal.classList.add("hidden");
+  rulesTrigger.focus();
+}
+
+rulesBtn.onclick = () => openRules(rulesBtn);
+startRulesBtn.onclick = () => openRules(startRulesBtn);
+closeRulesBtn.onclick = closeRules;
+closeRulesFooterBtn.onclick = closeRules;
+rulesModal.onclick = (event) => {
+  if (event.target === rulesModal) closeRules();
+};
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !rulesModal.classList.contains("hidden")) closeRules();
+});
   
 raiseBtn.onclick = () => openRaiseModal();  
 challengeBtn.onclick = () => {  

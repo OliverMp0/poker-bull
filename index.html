@@ -23,6 +23,7 @@
             <div class="label">Last call</div>  
             <div id="lastCall"></div>  
           </div>  
+          <button id="rulesBtn" type="button" aria-haspopup="dialog">Rules</button>
         </div>  
   
         <div id="controls">  
@@ -42,6 +43,63 @@
         </div>
 
         <div id="announcement"></div>
+
+				<div id="rulesModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="rulesTitle">
+					<div class="card rules-card">
+						<div class="rules-header">
+							<div id="rulesTitle" class="title">How to play Poker Bull</div>
+							<button id="closeRules" type="button" aria-label="Close rules">×</button>
+						</div>
+
+						<div class="rules-content">
+							<section>
+								<h2>Goal</h2>
+								<p>Be the last player remaining. Each player begins with one private card. Losing a round gives that player one additional card in every later round. A player who loses while holding five cards is eliminated.</p>
+							</section>
+
+							<section>
+								<h2>Taking a turn</h2>
+								<p>The dealer acts first. Play then moves around the table among active players. There is no passing: on your turn, either make a strictly higher call or challenge the previous call by pressing <strong>Bullshit</strong>.</p>
+								<p>A call claims that the named five-card poker hand can be formed from <strong>all cards currently dealt to active players</strong>, not just your own cards. Calls are bids—you do not need to hold the cards you name.</p>
+							</section>
+
+							<section>
+								<h2>Call order</h2>
+								<p>Calls rank from lowest to highest:</p>
+								<ol>
+									<li>High card (Single)</li>
+									<li>One pair</li>
+									<li>Two pair</li>
+									<li>Three of a kind</li>
+									<li>Full house</li>
+									<li>Four of a kind</li>
+								</ol>
+								<p>Straights and flushes are not used. A higher hand type always beats a lower type. Within one type, compare its main rank first (Ace high); for two pair compare the higher pair, then the lower pair; for a full house compare the three-of-a-kind rank, then the pair rank.</p>
+							</section>
+
+							<section>
+								<h2>Kickers and raising</h2>
+								<p>Optional kickers make a call more specific. Compare kickers from highest to lowest after the main ranks. If everything named so far is equal, a call naming another kicker is higher than the shorter call.</p>
+								<p>High card may name up to four lower, distinct kickers; a pair up to three; three of a kind up to two; and two pair or four of a kind up to one. A full house has no kicker. Named kickers must exist in the combined dealt cards for the call to be true.</p>
+								<p>Example: “a pair of 10s, an Ace and a King” is above “a pair of 10s, an Ace,” but below any pair of Jacks.</p>
+							</section>
+
+							<section>
+								<h2>Calling Bullshit</h2>
+								<p>A challenge reveals every active player's cards. If the last call is possible, the challenger loses the round. If it is impossible, the player who made the call loses. The loser deals the next round unless eliminated, in which case the next active player deals.</p>
+							</section>
+
+							<section>
+								<h2>Winning</h2>
+								<p>Rounds continue with losers receiving progressively larger hands. The last player who has not been eliminated wins the game.</p>
+							</section>
+						</div>
+
+						<div class="rules-footer">
+							<button id="closeRulesFooter" type="button">Got it</button>
+						</div>
+					</div>
+				</div>
 
         <div id="startOverlay">  
           <div class="card">  
@@ -105,6 +163,7 @@
             <div class="hint">  
               No passing. On your turn: Raise (make a strictly higher call) or call Bullshit.  
             </div>  
+            <button id="startRulesBtn" class="start-rules-btn" type="button" aria-haspopup="dialog">View full rules</button>
           </div>  
         </div>  
   

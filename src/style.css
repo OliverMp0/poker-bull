@@ -13,6 +13,10 @@ canvas { width: 100%; height: 100%; display:block; touch-action: none; }
   background: linear-gradient(180deg, rgba(0,0,0,.55), rgba(0,0,0,0));
 }
 #topbar > div { min-width: 160px; }
+#rulesBtn {
+  pointer-events: auto;
+  flex: 0 0 auto;
+}
 #controls {
   pointer-events: auto;
   position: absolute;
@@ -105,14 +109,48 @@ select, input {
 #onlineSetup { display: grid; gap: 4px; }
 #onlineSetup .row label { min-width: 90px; }
 .hint { opacity:.7; margin-top:10px; font-size:12px; }
+.start-rules-btn { margin-top: 10px; }
 
 .modal {
   pointer-events:auto;
   position:absolute; inset:0;
   display:flex; align-items:center; justify-content:center;
   background: rgba(0,0,0,.55);
+  z-index: 10;
 }
 .hidden { display:none !important; }
+.rules-card {
+  display: flex;
+  flex-direction: column;
+  max-height: min(82vh, 760px);
+}
+.rules-header, .rules-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.rules-header .title { margin-bottom: 0; }
+#closeRules {
+  padding: 2px 10px;
+  font-size: 24px;
+  line-height: 1.2;
+}
+.rules-content {
+  overflow-y: auto;
+  margin: 14px -4px 14px 0;
+  padding-right: 12px;
+  line-height: 1.5;
+}
+.rules-content section + section { margin-top: 18px; }
+.rules-content h2 {
+  margin: 0 0 5px;
+  color: #93c5fd;
+  font-size: 15px;
+}
+.rules-content p { margin: 0 0 8px; }
+.rules-content ol { margin: 6px 0 10px; padding-left: 24px; }
+.rules-footer { justify-content: flex-end; }
 .grid {
   display:grid;
   grid-template-columns: 140px 1fr;
@@ -163,6 +201,7 @@ select, input {
     flex-wrap: wrap;
   }
   #topbar > div { min-width: 80px; }
+  #rulesBtn { padding: 6px 9px; }
   #sidebar {
     position: absolute;
     top: 56px;
@@ -198,6 +237,7 @@ select, input {
     max-width: 400px;
     padding: 10px;
   }
+  .rules-card { max-height: 88vh; }
   .grid {
     grid-template-columns: 100px 1fr;
     gap: 6px 6px;
