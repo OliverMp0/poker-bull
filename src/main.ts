@@ -5,6 +5,7 @@ import { newGame, doRaise, doChallenge, resolveRevealAndNextRound } from "./game
 import { callToString, isStructurallyValidCall, RANKS_DESC } from "./game/calls";  
 import { generateAllCallsSorted } from "./game/allCalls";  
 import { chooseBotAction } from "./bot/simpleBot";  
+import { chooseHardBotAction } from "./bot/hardBot";
 import { TableView } from "./view/table";  
   
 const allCallsSorted = generateAllCallsSorted();  
@@ -29,6 +30,10 @@ const challengeBtn = document.getElementById("challengeBtn") as HTMLButtonElemen
 const startOverlay = document.getElementById("startOverlay")!;  
 const startBtn = document.getElementById("startBtn") as HTMLButtonElement;  
 const playerCountSel = document.getElementById("playerCount") as HTMLSelectElement;  
+const difficultySel = document.getElementById("difficulty") as HTMLSelectElement | null;
+
+type Difficulty = "normal" | "hard";
+let difficulty: Difficulty = "normal";
   
 // Raise modal  
 const raiseModal = document.getElementById("raiseModal")!;  
@@ -60,6 +65,7 @@ let announcementTimer: number | null = null;
 // --- boot ---  
 startBtn.onclick = () => {  
   const n = parseInt(playerCountSel.value, 10);  
+  difficulty = (difficultySel?.value === "hard" ? "hard" : "normal") as Difficulty;
   gs = newGame(n);  
   startOverlay.classList.add("hidden");  
   syncUI();  
@@ -194,7 +200,9 @@ function tickBots() {
       return;
     }  
   
-    const action = chooseBotAction(gs, ti, allCallsSorted);  
+    const action = difficulty === "hard"
+      ? chooseHardBotAction(gs, ti, allCallsSorted)
+      : chooseBotAction(gs, ti, allCallsSorted);  
     if (action.type === "CHALLENGE") {  
       doChallenge(gs, ti);  
       showAnnouncement(`${p.id} calls bullshit!`, 1800);
