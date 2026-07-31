@@ -10,7 +10,7 @@ export type ClientMessage =
   | { type: "ACTION"; action: OnlineAction };
 
 export type ServerMessage =
-  | { type: "LOBBY"; players: string[] }
+  | { type: "LOBBY"; players: string[]; botCount: number }
   | { type: "START"; playerIndex: number; state: GameState }
   | { type: "STATE"; state: GameState; announcement?: string }
   | { type: "ERROR"; message: string };

@@ -62,6 +62,23 @@
 								<label>Room code</label>
 								<input id="roomCode" maxlength="12" placeholder="e.g. aces42" />
 							</div>
+             <div class="row">
+								<label>Host bots</label>
+								<select id="onlineBotCount">
+									<option value="0" selected>None</option>
+									<option value="1">1 bot</option>
+									<option value="2">2 bots</option>
+									<option value="3">3 bots</option>
+									<option value="4">4 bots</option>
+									<option value="5">5 bots</option>
+									<option value="6">6 bots</option>
+                 <option value="7">7 bots</option>
+								</select>
+								<select id="onlineBotDifficulty">
+									<option value="normal" selected>Normal</option>
+									<option value="hard">Hard</option>
+								</select>
+							</div>
 							<div class="row">
 								<button id="hostBtn">Host room</button>
 								<button id="joinBtn">Join room</button>
@@ -94,8 +111,10 @@
         <div id="raiseModal" class="modal hidden">  
           <div class="card">  
             <div class="title">Make a call</div>  
+						<div id="callHelp" class="call-help"></div>
   
             <div class="grid">  
+              <div class="field-heading">Main hand</div>
               <label>Type</label>  
               <select id="callType"></select>  
   
@@ -104,7 +123,8 @@
   
               <label id="p2Label" class="hidden"></label>  
               <select id="p2" class="hidden"></select>  
-  
+
+							<div id="kickerHeading" class="field-heading">Optional tie-break cards</div>
               <label id="k1Label"></label>  
               <select id="k1"></select>  
   
@@ -117,6 +137,8 @@
               <label id="k4Label"></label>  
               <select id="k4"></select>  
             </div>  
+
+						<div id="callPreview" class="call-preview mono"></div>
   
             <div class="row" style="justify-content:flex-end; gap:10px; margin-top:12px;">  
               <button id="cancelRaise">Cancel</button>  

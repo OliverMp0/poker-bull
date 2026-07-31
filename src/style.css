@@ -118,6 +118,20 @@ select, input {
   grid-template-columns: 140px 1fr;
   gap: 8px 10px;
 }
+.field-heading {
+  grid-column: 1 / -1;
+  margin-top: 6px;
+  padding-bottom: 4px;
+  color: #93c5fd;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  border-bottom: 1px solid rgba(255,255,255,.1);
+}
+.call-help { margin: -3px 0 12px; color: rgba(230,237,243,.72); font-size: 13px; line-height: 1.4; }
+.call-preview { margin-top: 12px; padding: 9px 11px; background: rgba(56,189,248,.08); border: 1px solid rgba(56,189,248,.2); border-radius: 10px; }
+.call-preview.invalid { color: #fca5a5; background: rgba(248,113,113,.06); border-color: rgba(248,113,113,.2); }
 .error { color:#fca5a5; margin-top:10px; min-height: 18px; }
 
 #announcement {

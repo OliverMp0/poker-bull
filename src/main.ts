@@ -1,7 +1,7 @@
 import "./style.css";  
   
 import type { Call, CallKind, GameState, Rank } from "./game/types";  
-import { newGame, doRaise, doChallenge, resolveRevealAndNextRound } from "./game/engine";  
+import { newGame, doRaise, doChallenge, resolveRevealAndNextRound, canRaise } from "./game/engine";  
 import { callToString, isStructurallyValidCall, RANKS_DESC } from "./game/calls";  
 import { generateAllCallsSorted } from "./game/allCalls";  
 import { chooseBotAction } from "./bot/simpleBot";  
@@ -24,6 +24,7 @@ let onlineGame = false;
 let onlineStarted = false;
 const onlineNames = new Map<string, string>();
 const peerPlayerIndices = new Map<string, number>();
+const onlineBotIndices = new Set<number>();
   
 // HUD elements  
 const turnEl = document.getElementById("turn")!;  
@@ -48,6 +49,8 @@ const hostBtn = document.getElementById("hostBtn") as HTMLButtonElement;
 const joinBtn = document.getElementById("joinBtn") as HTMLButtonElement;
 const startOnlineBtn = document.getElementById("startOnlineBtn") as HTMLButtonElement;
 const onlineStatusEl = document.getElementById("onlineStatus")!;
+const onlineBotCountSel = document.getElementById("onlineBotCount") as HTMLSelectElement;
+const onlineBotDifficultySel = document.getElementById("onlineBotDifficulty") as HTMLSelectElement;
 
 type Difficulty = "normal" | "hard";
 let difficulty: Difficulty = "normal";
@@ -72,6 +75,9 @@ const k4Sel = document.getElementById("k4") as HTMLSelectElement;
 const cancelRaiseBtn = document.getElementById("cancelRaise") as HTMLButtonElement;  
 const submitRaiseBtn = document.getElementById("submitRaise") as HTMLButtonElement;  
 const raiseErrorEl = document.getElementById("raiseError")!;  
+const callHelpEl = document.getElementById("callHelp")!;
+const callPreviewEl = document.getElementById("callPreview")!;
+const kickerHeadingEl = document.getElementById("kickerHeading")!;
 // Continue overlay  
 const continueOverlay = document.getElementById("continueOverlay")!;
 
@@ -157,6 +163,10 @@ submitRaiseBtn.onclick = () => {
 };  
   
 callTypeSel.onchange = () => refreshRaiseModalFields();  
+for (const select of [p1Sel, p2Sel, k1Sel, k2Sel, k3Sel, k4Sel]) {
+  select.onchange = () => updateRaisePreview();
+}
+onlineBotCountSel.onchange = () => updateHostLobby();
   
 function animate() {  
   view.frame();  
@@ -230,8 +240,22 @@ async function joinOnlineRoom(): Promise<void> {
 }
 
 function handleHostConnectionsChanged(): void {
-  if (!onlineHost || onlineStarted) return;
+  if (!onlineHost) return;
   const connected = new Set(onlineHost.peerIds());
+  if (onlineStarted && gs) {
+    for (const [peerId, playerIndex] of peerPlayerIndices) {
+      if (connected.has(peerId)) continue;
+      peerPlayerIndices.delete(peerId);
+      onlineBotIndices.add(playerIndex);
+      gs.players[playerIndex].id = `${gs.players[playerIndex].id} (bot)`;
+      const announcement = `${gs.players[playerIndex].id} took over after a disconnect.`;
+      syncUI();
+      broadcastOnlineState(announcement);
+      showAnnouncement(announcement, 1800);
+    }
+    tickHostedBots();
+    return;
+  }
   for (const peerId of onlineNames.keys()) {
     if (peerId !== "host" && !connected.has(peerId)) onlineNames.delete(peerId);
   }
@@ -256,19 +280,32 @@ function updateHostLobby(): void {
   const players = [onlineNames.get("host")!, ...onlineHost.peerIds()
     .map(peerId => onlineNames.get(peerId))
     .filter((name): name is string => !!name)];
-  onlineStatusEl.textContent = `Room ${onlineCode()} — ${players.length} player${players.length === 1 ? "" : "s"}: ${players.join(", ")}`;
-  startOnlineBtn.disabled = players.length < 2;
-  onlineHost.broadcast(() => ({ type: "LOBBY", players }));
+  const botCount = selectedOnlineBotCount(players.length);
+  const botText = botCount ? ` + ${botCount} bot${botCount === 1 ? "" : "s"}` : "";
+  onlineStatusEl.textContent = `Room ${onlineCode()} — ${players.length} player${players.length === 1 ? "" : "s"}${botText}: ${players.join(", ")}`;
+  startOnlineBtn.disabled = players.length + botCount < 2;
+  onlineHost.broadcast(() => ({ type: "LOBBY", players, botCount }));
+}
+
+function selectedOnlineBotCount(humanCount: number): number {
+  const requested = parseInt(onlineBotCountSel.value, 10) || 0;
+  const count = Math.min(requested, Math.max(0, 8 - humanCount));
+  if (count !== requested) onlineBotCountSel.value = String(count);
+  return count;
 }
 
 function startHostedGame(): void {
   if (!onlineHost || onlineStarted) return;
   const peerIds = onlineHost.peerIds().filter(peerId => onlineNames.has(peerId));
-  if (peerIds.length < 1) return;
+  const humanCount = peerIds.length + 1;
+  const botCount = selectedOnlineBotCount(humanCount);
+  if (humanCount + botCount < 2) return;
 
   onlineStarted = true;
   peerPlayerIndices.clear();
-  gs = newGame(peerIds.length + 1);
+  onlineBotIndices.clear();
+  difficulty = onlineBotDifficultySel.value === "hard" ? "hard" : "normal";
+  gs = newGame(humanCount + botCount);
   gs.players[0].id = onlineNames.get("host")!;
   gs.players[0].isHuman = true;
   peerIds.forEach((peerId, offset) => {
@@ -278,15 +315,23 @@ function startHostedGame(): void {
     gs!.players[playerIndex].isHuman = false;
     onlineHost!.send(peerId, { type: "START", playerIndex, state: stateForPlayer(playerIndex) });
   });
+  for (let offset = 0; offset < botCount; offset++) {
+    const playerIndex = humanCount + offset;
+    onlineBotIndices.add(playerIndex);
+    gs.players[playerIndex].id = `Bot ${offset + 1}`;
+    gs.players[playerIndex].isHuman = false;
+  }
 
   startOverlay.classList.add("hidden");
   syncUI();
   broadcastOnlineState();
+  tickHostedBots();
 }
 
 function handleServerMessage(message: ServerMessage): void {
   if (message.type === "LOBBY") {
-    onlineStatusEl.textContent = `Waiting for host — players: ${message.players.join(", ")}`;
+    const botText = message.botCount ? ` + ${message.botCount} bot${message.botCount === 1 ? "" : "s"}` : "";
+    onlineStatusEl.textContent = `Waiting for host — players: ${message.players.join(", ")}${botText}`;
   } else if (message.type === "START") {
     localPlayerIndex = message.playerIndex;
     onlineStarted = true;
@@ -332,8 +377,26 @@ function applyHostedAction(playerIndex: number, action: OnlineAction, sourcePeer
       resolveRevealAndNextRound(gs);
       syncUI();
       broadcastOnlineState();
+      tickHostedBots();
     }, 2500);
+  } else {
+    tickHostedBots();
   }
+}
+
+function tickHostedBots(): void {
+  if (!onlineHost || !gs || gs.round.reveal || gs.gameOverWinnerIndex !== null) return;
+  const playerIndex = gs.round.turnIndex;
+  if (!onlineBotIndices.has(playerIndex)) return;
+
+  if (botTimer !== null) window.clearTimeout(botTimer);
+  botTimer = window.setTimeout(() => {
+    if (!gs || gs.round.turnIndex !== playerIndex || !onlineBotIndices.has(playerIndex)) return;
+    const action = difficulty === "hard"
+      ? chooseHardBotAction(gs, playerIndex, allCallsSorted)
+      : chooseBotAction(gs, playerIndex, allCallsSorted);
+    applyHostedAction(playerIndex, action);
+  }, 650);
 }
 
 function stateForPlayer(playerIndex: number): GameState {
@@ -518,6 +581,7 @@ function refreshRaiseModalFields() {
   const labels = kickerLabels(kind);  
   const kLabels = [k1Label, k2Label, k3Label, k4Label];  
   const kSels = [k1Sel, k2Sel, k3Sel, k4Sel];  
+  kickerHeadingEl.classList.toggle("hidden", labels.length === 0);
   
   for (let i = 0; i < 4; i++) {  
     const shouldShow = i < labels.length;  
@@ -531,30 +595,37 @@ function refreshRaiseModalFields() {
   if (kind === "SINGLE") {  
     p1Label.textContent = "Top card";  
     p2Label.textContent = "";  
+    callHelpEl.textContent = "Name the highest card, then add lower cards in descending order to make the claim more specific.";
   } else if (kind === "PAIR") {  
     p1Label.textContent = "Pair rank";  
+    callHelpEl.textContent = "Choose the pair, then optionally add distinct kickers from highest to lowest.";
   } else if (kind === "TRIPS") {  
     p1Label.textContent = "Trips rank";  
+    callHelpEl.textContent = "Choose the three-of-a-kind rank, then optionally add up to two distinct kickers.";
   } else if (kind === "QUADS") {  
     p1Label.textContent = "Quads rank";  
+    callHelpEl.textContent = "Choose the four-of-a-kind rank. The optional kicker breaks a tie.";
   } else if (kind === "TWO_PAIR") {  
-    p1Label.textContent = "Pair A";  
-    p2Label.textContent = "Pair B";  
+    p1Label.textContent = "Higher pair";  
+    p2Label.textContent = "Lower pair";  
+    callHelpEl.textContent = "The first pair must be higher than the second. Add one optional kicker of a different rank.";
   } else if (kind === "FULL_HOUSE") {  
     p1Label.textContent = "Trips rank";  
     p2Label.textContent = "Pair rank";  
+    callHelpEl.textContent = "Choose the rank used three times and a different rank used twice.";
   }  
   
   raiseErrorEl.textContent = "";  
+  updateRaisePreview();
 }  
   
 function kickerLabels(kind: CallKind): string[] {  
   switch (kind) {  
-    case "SINGLE": return ["Kicker 1", "Kicker 2", "Kicker 3", "Kicker 4"];  
-    case "PAIR": return ["Kicker 1", "Kicker 2", "Kicker 3"];  
-    case "TRIPS": return ["Kicker 1", "Kicker 2"];  
-    case "TWO_PAIR": return ["Kicker"];  
-    case "QUADS": return ["Kicker"];  
+    case "SINGLE": return ["Highest kicker", "2nd kicker", "3rd kicker", "4th kicker"];  
+    case "PAIR": return ["Highest kicker", "2nd kicker", "3rd kicker"];  
+    case "TRIPS": return ["Highest kicker", "2nd kicker"];  
+    case "TWO_PAIR": return ["Optional kicker"];  
+    case "QUADS": return ["Optional kicker"];  
     case "FULL_HOUSE": return [];  
   }  
 }  
@@ -564,7 +635,7 @@ function fillRankSelect(sel: HTMLSelectElement, ranks: any[], defaultValue: any)
   for (const r of ranks) {  
     const opt = document.createElement("option");  
     opt.value = String(r);  
-    opt.textContent = r === "(none)" ? "(none)" : rankName(parseInt(String(r), 10) as Rank);  
+    opt.textContent = r === "(none)" ? "No kicker" : rankName(parseInt(String(r), 10) as Rank);  
     sel.appendChild(opt);  
   }  
   sel.value = String(defaultValue);  
@@ -584,6 +655,17 @@ function parseRankOrNone(v: string): Rank | null {
 }  
   
 function buildCallFromModal(): Call | null {  
+  const call = readCallFromModal();
+  const v = isStructurallyValidCall(call);  
+  if (v.ok === false) { raiseErrorEl.textContent = v.error; return null; }  
+  if (gs) {
+    const raiseResult = canRaise(gs, call);
+    if (raiseResult.ok === false) { raiseErrorEl.textContent = raiseResult.error; return null; }
+  }
+  return call;  
+}  
+
+function readCallFromModal(): Call {
   const kind = callTypeSel.value as CallKind;  
   
   const r1 = parseInt(p1Sel.value, 10) as Rank;  
@@ -593,45 +675,26 @@ function buildCallFromModal(): Call | null {
     .map(s => parseRankOrNone(s.value))  
     .filter((x): x is Rank => x !== null);  
   
-  let call: Call;  
-  
-  if (kind === "SINGLE") call = { kind, rank: r1, kickers: ks };  
-  else if (kind === "PAIR") call = { kind, rank: r1, kickers: ks };  
-  else if (kind === "TRIPS") call = { kind, rank: r1, kickers: ks };  
-  else if (kind === "FULL_HOUSE") call = { kind, trips: r1, pair: r2 };  
-  else if (kind === "QUADS") call = { kind, rank: r1, kicker: ks[0] };  
-  else call = { kind, high: r1, low: r2, kicker: ks[0] };  
-  
-  const v = isStructurallyValidCall(call);  
-  if (v.ok === false) { raiseErrorEl.textContent = v.error; return null; }  
-  
-  // also check “strictly higher than last call”  
-  if (gs) {  
-    const cr = (awaitableCanRaise(gs, call));  
-    if (cr !== true) { raiseErrorEl.textContent = cr; return null; }  
-  }  
-  
-  return call;  
+  if (kind === "SINGLE") return { kind, rank: r1, kickers: ks };  
+  if (kind === "PAIR") return { kind, rank: r1, kickers: ks };  
+  if (kind === "TRIPS") return { kind, rank: r1, kickers: ks };  
+  if (kind === "FULL_HOUSE") return { kind, trips: r1, pair: r2 };  
+  if (kind === "QUADS") return { kind, rank: r1, kicker: ks[0] };  
+  return { kind, high: r1, low: r2, kicker: ks[0] };  
 }  
-  
-function awaitableCanRaise(gs: GameState, call: Call): true | string {  
-  // reuse engine rule without importing canRaise directly to keep this file simple  
-  if (!gs.round.lastCall) return true;  
-  // dynamic import avoided; minimal duplicate: use call ordering by lookup in allCallsSorted  
-  // Instead of re-implement compareCalls here, we just try a dry-run raise using engine:  
-  // (but engine returns error that includes "Not your turn" etc). We'll do a lightweight check:  
-  // -> simplest: allow submit, engine will error; but better feedback:  
-  // We'll approximate by checking indices in allCallsSorted (they are fully sorted).  
-  const idx = (c: Call) => {  
-    for (let i = 0; i < allCallsSorted.length; i++) {  
-      // stringify match isn't safe; so we just use callToString rough? Not.  
-      // We'll do a conservative fallback: if user submits a non-raise, engine will reject.  
-      // Hence: return -1 and skip.  
-      void c;  
-      return -1;  
-    }  
-    return -1;  
-  };  
-  // keep it simple: let engine validate on submit; no extra check here.  
-  return true;  
+
+function updateRaisePreview(): void {
+  const call = readCallFromModal();
+  const structural = isStructurallyValidCall(call);
+  const raiseResult = structural.ok && gs ? canRaise(gs, call) : structural;
+  if (raiseResult.ok === false) {
+    callPreviewEl.textContent = `Adjust selection: ${raiseResult.error}`;
+    callPreviewEl.classList.add("invalid");
+    submitRaiseBtn.disabled = true;
+    return;
+  }
+  const previous = gs?.round.lastCall ? ` (beats ${callToString(gs.round.lastCall)})` : "";
+  callPreviewEl.textContent = `Your call: ${callToString(call)}${previous}`;
+  callPreviewEl.classList.remove("invalid");
+  submitRaiseBtn.disabled = false;
 }
