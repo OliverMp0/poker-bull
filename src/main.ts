@@ -6,6 +6,7 @@ import { callToString, isStructurallyValidCall, RANKS_DESC } from "./game/calls"
 import { generateAllCallsSorted } from "./game/allCalls";  
 import { chooseBotAction } from "./bot/simpleBot";  
 import { chooseHardBotAction } from "./bot/hardBot";
+import { OnlineClient, OnlineHost, type ClientMessage, type OnlineAction, type ServerMessage } from "./online";
 import { TableView } from "./view/table";  
   
 const allCallsSorted = generateAllCallsSorted();  
@@ -16,6 +17,13 @@ const view = new TableView(canvas);
 let gs: GameState | null = null;  
 let botTimer: number | null = null;  
 let pendingContinue: (() => void) | null = null;  
+let onlineHost: OnlineHost | null = null;
+let onlineClient: OnlineClient | null = null;
+let localPlayerIndex = 0;
+let onlineGame = false;
+let onlineStarted = false;
+const onlineNames = new Map<string, string>();
+const peerPlayerIndices = new Map<string, number>();
   
 // HUD elements  
 const turnEl = document.getElementById("turn")!;  
@@ -31,6 +39,15 @@ const startOverlay = document.getElementById("startOverlay")!;
 const startBtn = document.getElementById("startBtn") as HTMLButtonElement;  
 const playerCountSel = document.getElementById("playerCount") as HTMLSelectElement;  
 const difficultySel = document.getElementById("difficulty") as HTMLSelectElement | null;
+const gameModeSel = document.getElementById("gameMode") as HTMLSelectElement;
+const localSetup = document.getElementById("localSetup")!;
+const onlineSetup = document.getElementById("onlineSetup")!;
+const playerNameInput = document.getElementById("playerName") as HTMLInputElement;
+const roomCodeInput = document.getElementById("roomCode") as HTMLInputElement;
+const hostBtn = document.getElementById("hostBtn") as HTMLButtonElement;
+const joinBtn = document.getElementById("joinBtn") as HTMLButtonElement;
+const startOnlineBtn = document.getElementById("startOnlineBtn") as HTMLButtonElement;
+const onlineStatusEl = document.getElementById("onlineStatus")!;
 
 type Difficulty = "normal" | "hard";
 let difficulty: Difficulty = "normal";
@@ -63,6 +80,12 @@ const announcementEl = document.getElementById("announcement")!;
 let announcementTimer: number | null = null;
 
 // --- boot ---  
+gameModeSel.onchange = () => {
+  const online = gameModeSel.value === "online";
+  localSetup.classList.toggle("hidden", online);
+  onlineSetup.classList.toggle("hidden", !online);
+};
+
 startBtn.onclick = () => {  
   const n = parseInt(playerCountSel.value, 10);  
   difficulty = (difficultySel?.value === "hard" ? "hard" : "normal") as Difficulty;
@@ -71,11 +94,19 @@ startBtn.onclick = () => {
   syncUI();  
   tickBots();  
 };  
+
+hostBtn.onclick = () => hostOnlineRoom();
+joinBtn.onclick = () => joinOnlineRoom();
+startOnlineBtn.onclick = () => startHostedGame();
   
 raiseBtn.onclick = () => openRaiseModal();  
 challengeBtn.onclick = () => {  
   if (!gs) return;  
-  const you = 0;  
+  if (onlineGame) {
+    submitOnlineAction({ type: "CHALLENGE" });
+    return;
+  }
+  const you = localPlayerIndex;  
   const r = doChallenge(gs, you);  
   if (!r.ok) return;  
   // reveal is now set; show state and single continue resolves the round
@@ -105,12 +136,18 @@ continueOverlay.onclick = (e) => {
 cancelRaiseBtn.onclick = () => closeRaiseModal();  
 submitRaiseBtn.onclick = () => {  
   if (!gs) return;  
-  const you = 0;  
+  const you = localPlayerIndex;  
   const call = buildCallFromModal();  
   if (!call) return;  
+
+  if (onlineGame) {
+    closeRaiseModal();
+    submitOnlineAction({ type: "RAISE", call });
+    return;
+  }
   
   const r = doRaise(gs, you, call);  
-  if (!r.ok) {  
+  if (r.ok === false) {  
     raiseErrorEl.textContent = r.error;  
     return;  
   }  
@@ -126,6 +163,199 @@ function animate() {
   requestAnimationFrame(animate);  
 }  
 animate();  
+
+// --- online multiplayer ---
+function onlineName(): string {
+  return playerNameInput.value.trim().slice(0, 20) || "Player";
+}
+
+function onlineCode(): string {
+  const code = roomCodeInput.value.trim().toLowerCase().replace(/[^a-z0-9-]/g, "");
+  roomCodeInput.value = code;
+  return code;
+}
+
+function setOnlineSetupEnabled(enabled: boolean): void {
+  hostBtn.disabled = !enabled;
+  joinBtn.disabled = !enabled;
+  roomCodeInput.disabled = !enabled;
+  playerNameInput.disabled = !enabled;
+}
+
+async function hostOnlineRoom(): Promise<void> {
+  const code = onlineCode();
+  if (!code) {
+    onlineStatusEl.textContent = "Enter a room code first.";
+    return;
+  }
+
+  setOnlineSetupEnabled(false);
+  onlineNames.clear();
+  onlineNames.set("host", onlineName());
+  onlineHost = new OnlineHost(code, handleHostMessage, handleHostConnectionsChanged);
+  try {
+    await onlineHost.ready();
+    onlineGame = true;
+    localPlayerIndex = 0;
+    startOnlineBtn.classList.remove("hidden");
+    updateHostLobby();
+  } catch {
+    onlineStatusEl.textContent = "That room code is unavailable. Try another.";
+    onlineHost.close();
+    onlineHost = null;
+    setOnlineSetupEnabled(true);
+  }
+}
+
+async function joinOnlineRoom(): Promise<void> {
+  const code = onlineCode();
+  if (!code) {
+    onlineStatusEl.textContent = "Enter the host's room code first.";
+    return;
+  }
+
+  setOnlineSetupEnabled(false);
+  onlineClient = new OnlineClient(handleServerMessage);
+  onlineStatusEl.textContent = "Connecting…";
+  try {
+    await onlineClient.connect(code, onlineName());
+    onlineGame = true;
+    onlineStatusEl.textContent = "Connected. Waiting for the host to start…";
+  } catch {
+    onlineStatusEl.textContent = "Could not join that room.";
+    onlineClient.close();
+    onlineClient = null;
+    setOnlineSetupEnabled(true);
+  }
+}
+
+function handleHostConnectionsChanged(): void {
+  if (!onlineHost || onlineStarted) return;
+  const connected = new Set(onlineHost.peerIds());
+  for (const peerId of onlineNames.keys()) {
+    if (peerId !== "host" && !connected.has(peerId)) onlineNames.delete(peerId);
+  }
+  updateHostLobby();
+}
+
+function handleHostMessage(peerId: string, message: ClientMessage): void {
+  if (!onlineHost) return;
+  if (message.type === "JOIN" && !onlineStarted) {
+    onlineNames.set(peerId, message.name.trim().slice(0, 20) || "Player");
+    updateHostLobby();
+    return;
+  }
+  if (message.type === "ACTION" && onlineStarted) {
+    const playerIndex = peerPlayerIndices.get(peerId);
+    if (playerIndex !== undefined) applyHostedAction(playerIndex, message.action, peerId);
+  }
+}
+
+function updateHostLobby(): void {
+  if (!onlineHost) return;
+  const players = [onlineNames.get("host")!, ...onlineHost.peerIds()
+    .map(peerId => onlineNames.get(peerId))
+    .filter((name): name is string => !!name)];
+  onlineStatusEl.textContent = `Room ${onlineCode()} — ${players.length} player${players.length === 1 ? "" : "s"}: ${players.join(", ")}`;
+  startOnlineBtn.disabled = players.length < 2;
+  onlineHost.broadcast(() => ({ type: "LOBBY", players }));
+}
+
+function startHostedGame(): void {
+  if (!onlineHost || onlineStarted) return;
+  const peerIds = onlineHost.peerIds().filter(peerId => onlineNames.has(peerId));
+  if (peerIds.length < 1) return;
+
+  onlineStarted = true;
+  peerPlayerIndices.clear();
+  gs = newGame(peerIds.length + 1);
+  gs.players[0].id = onlineNames.get("host")!;
+  gs.players[0].isHuman = true;
+  peerIds.forEach((peerId, offset) => {
+    const playerIndex = offset + 1;
+    peerPlayerIndices.set(peerId, playerIndex);
+    gs!.players[playerIndex].id = onlineNames.get(peerId)!;
+    gs!.players[playerIndex].isHuman = false;
+    onlineHost!.send(peerId, { type: "START", playerIndex, state: stateForPlayer(playerIndex) });
+  });
+
+  startOverlay.classList.add("hidden");
+  syncUI();
+  broadcastOnlineState();
+}
+
+function handleServerMessage(message: ServerMessage): void {
+  if (message.type === "LOBBY") {
+    onlineStatusEl.textContent = `Waiting for host — players: ${message.players.join(", ")}`;
+  } else if (message.type === "START") {
+    localPlayerIndex = message.playerIndex;
+    onlineStarted = true;
+    gs = message.state;
+    startOverlay.classList.add("hidden");
+    syncUI();
+  } else if (message.type === "STATE") {
+    gs = message.state;
+    syncUI();
+    if (message.announcement) showAnnouncement(message.announcement, 1800);
+  } else {
+    showAnnouncement(message.message, 1800);
+  }
+}
+
+function submitOnlineAction(action: OnlineAction): void {
+  if (!gs || gs.round.turnIndex !== localPlayerIndex) return;
+  if (onlineHost) applyHostedAction(localPlayerIndex, action);
+  else onlineClient?.send({ type: "ACTION", action });
+}
+
+function applyHostedAction(playerIndex: number, action: OnlineAction, sourcePeerId?: string): void {
+  if (!gs || !onlineHost) return;
+  const result = action.type === "RAISE"
+    ? doRaise(gs, playerIndex, action.call)
+    : doChallenge(gs, playerIndex);
+  if (result.ok === false) {
+    if (sourcePeerId) onlineHost.send(sourcePeerId, { type: "ERROR", message: result.error });
+    else showAnnouncement(result.error);
+    return;
+  }
+
+  const announcement = action.type === "RAISE"
+    ? `${gs.players[playerIndex].id}: ${callToString(action.call)}`
+    : `${gs.players[playerIndex].id} calls bullshit!`;
+  syncUI();
+  broadcastOnlineState(announcement);
+  showAnnouncement(announcement, 1800);
+
+  if (action.type === "CHALLENGE") {
+    window.setTimeout(() => {
+      if (!gs?.round.reveal) return;
+      resolveRevealAndNextRound(gs);
+      syncUI();
+      broadcastOnlineState();
+    }, 2500);
+  }
+}
+
+function stateForPlayer(playerIndex: number): GameState {
+  if (!gs) throw new Error("Game has not started.");
+  const state = structuredClone(gs);
+  for (let i = 0; i < state.players.length; i++) {
+    state.players[i].isHuman = i === playerIndex;
+    if (i !== playerIndex && !state.round.reveal) {
+      state.players[i].hand = state.players[i].hand.map(() => ({ rank: 2 as Rank, suit: "C" as const }));
+    }
+  }
+  return state;
+}
+
+function broadcastOnlineState(announcement?: string): void {
+  if (!onlineHost || !gs) return;
+  onlineHost.broadcast(peerId => ({
+    type: "STATE",
+    state: stateForPlayer(peerPlayerIndices.get(peerId)!),
+    announcement,
+  }));
+}
   
 // --- UI helpers ---  
 function showContinue(fn: () => void) {  
@@ -161,7 +391,7 @@ function syncUI() {
   historyEl.textContent = gs.round.history.slice(-40).join("\n");  
   historyEl.scrollTop = historyEl.scrollHeight;  
   
-  const yourTurn = gs.round.turnIndex === 0 && !gs.round.reveal && gs.gameOverWinnerIndex === null;  
+  const yourTurn = gs.round.turnIndex === localPlayerIndex && !gs.round.reveal && gs.gameOverWinnerIndex === null;  
   raiseBtn.disabled = !yourTurn;  
   challengeBtn.disabled = !yourTurn || !gs.round.lastCall;  
   
@@ -176,6 +406,7 @@ function syncUI() {
 // --- bot loop + reveal handling ---  
 function tickBots() {  
   if (!gs) return;  
+  if (onlineGame) return;
   if (gs.gameOverWinnerIndex !== null) return;  
   if (gs.round.reveal) { handleRevealIfAny(); return; }  
   
@@ -372,7 +603,7 @@ function buildCallFromModal(): Call | null {
   else call = { kind, high: r1, low: r2, kicker: ks[0] };  
   
   const v = isStructurallyValidCall(call);  
-  if (!v.ok) { raiseErrorEl.textContent = v.error; return null; }  
+  if (v.ok === false) { raiseErrorEl.textContent = v.error; return null; }  
   
   // also check “strictly higher than last call”  
   if (gs) {  

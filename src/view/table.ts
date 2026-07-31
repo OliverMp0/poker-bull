@@ -242,7 +242,11 @@ export class TableView {
       });
     }
 
-    const act = activeIndices(gs.players);
+    const active = activeIndices(gs.players);
+    const localSeat = active.findIndex(index => gs.players[index].isHuman);
+    const act = localSeat > 0
+      ? [...active.slice(localSeat), ...active.slice(0, localSeat)]
+      : active;
     const n = act.length;
 
     // place dealer marker — offset inward toward center so it doesn't obscure cards

@@ -46,6 +46,30 @@
         <div id="startOverlay">  
           <div class="card">  
             <div class="title">Poker Bull (kicker version, no straights/flushes)</div>  
+            <div class="row">
+							<label>Mode</label>
+							<select id="gameMode">
+								<option value="local" selected>Solo vs bots</option>
+								<option value="online">Online multiplayer</option>
+							</select>
+						</div>
+						<div id="onlineSetup" class="hidden">
+							<div class="row">
+								<label>Your name</label>
+								<input id="playerName" maxlength="20" value="Player" />
+							</div>
+							<div class="row">
+								<label>Room code</label>
+								<input id="roomCode" maxlength="12" placeholder="e.g. aces42" />
+							</div>
+							<div class="row">
+								<button id="hostBtn">Host room</button>
+								<button id="joinBtn">Join room</button>
+								<button id="startOnlineBtn" class="hidden">Start game</button>
+							</div>
+							<div id="onlineStatus" class="hint">Create a room or enter a friend's code.</div>
+						</div>
+						<div id="localSetup">
             <div class="row">  
               <label>Players (you + bots)</label>  
               <select id="playerCount">  
@@ -60,6 +84,7 @@
               </select>
             </div>
             <button id="startBtn">Start</button>  
+            </div>
             <div class="hint">  
               No passing. On your turn: Raise (make a strictly higher call) or call Bullshit.  
             </div>  
