@@ -94,6 +94,7 @@ const callPreviewEl = document.getElementById("callPreview")!;
 const kickerHeadingEl = document.getElementById("kickerHeading")!;
 // Continue overlay  
 const continueOverlay = document.getElementById("continueOverlay")!;
+const continueHint = document.getElementById("continueHint") as HTMLButtonElement;
 
 // Announcement element
 const announcementEl = document.getElementById("announcement")!;
@@ -184,12 +185,16 @@ challengeBtn.onclick = () => {
   });
 };
   
-continueOverlay.onclick = (e) => {
+continueHint.onclick = (e) => {
   e.stopPropagation();
   if (pendingContinue) {
+    sounds.play("click");
     const fn = pendingContinue;
     pendingContinue = null;
     continueOverlay.classList.add("hidden");
+    if (announcementTimer !== null) window.clearTimeout(announcementTimer);
+    announcementTimer = null;
+    announcementEl.classList.remove("visible");
     // restore action buttons
     const controls = document.getElementById("controls")!;
     controls.classList.remove("hidden");
@@ -482,6 +487,10 @@ function broadcastOnlineState(announcement?: string): void {
 function showContinue(fn: () => void) {  
   pendingContinue = fn;  
   continueOverlay.classList.remove("hidden");  
+  if (announcementTimer !== null) {
+    window.clearTimeout(announcementTimer);
+    announcementTimer = null;
+  }
   // hide action buttons so they don't clip the continue hint
   const controls = document.getElementById("controls")!;
   controls.classList.add("hidden");
