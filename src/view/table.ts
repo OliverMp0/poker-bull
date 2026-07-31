@@ -116,14 +116,22 @@ export class TableView {
 
   private cardsGroup = new THREE.Group();
   private dealerMarker: THREE.Mesh;
+  private turnMarker: THREE.Mesh<THREE.TorusGeometry, THREE.MeshBasicMaterial>;
   private controls!: OrbitControls;
   private dirty = true;
   private lastGs: GameState | null = null;
+  private lastDeckSeed: number | null = null;
+  private lastReveal = false;
+  private animationMode: "deal" | "reveal" | "none" = "none";
 
   constructor(private canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
     this.renderer.setPixelRatio(Math.min(3, window.devicePixelRatio));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = 1.05;
+    this.renderer.shadowMap.enabled = true;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color("#070a0f");
@@ -132,23 +140,52 @@ export class TableView {
     this.camera.position.set(0, 9.2, 11.8);
     this.camera.lookAt(0, 0, -0.6);
 
-    const hemi = new THREE.HemisphereLight(0xbfd7ff, 0x0b0f14, 1.1);
+    const hemi = new THREE.HemisphereLight(0xbfd7ff, 0x07110e, 1.2);
     this.scene.add(hemi);
 
-    const dir = new THREE.DirectionalLight(0xffffff, 0.85);
+    const dir = new THREE.DirectionalLight(0xfff4dd, 1.6);
     dir.position.set(6, 9, 5);
+    dir.castShadow = true;
+    dir.shadow.mapSize.set(2048, 2048);
+    dir.shadow.camera.left = -8;
+    dir.shadow.camera.right = 8;
+    dir.shadow.camera.top = 8;
+    dir.shadow.camera.bottom = -8;
     this.scene.add(dir);
+
+    const fill = new THREE.PointLight(0x22d3ee, 10, 18);
+    fill.position.set(-6, 4, -5);
+    this.scene.add(fill);
+
+    const floor = new THREE.Mesh(
+      new THREE.CircleGeometry(14, 64),
+      new THREE.MeshStandardMaterial({ color: 0x020706, roughness: 1 })
+    );
+    floor.rotation.x = -Math.PI / 2;
+    floor.position.y = -0.68;
+    floor.receiveShadow = true;
+    this.scene.add(floor);
 
     const table = new THREE.Mesh(
       new THREE.CylinderGeometry(6.2, 6.2, 0.6, 64),
       new THREE.MeshStandardMaterial({ color: 0x0f3d2e, roughness: 0.92, metalness: 0.04 })
     );
     table.position.y = -0.35;
+    table.receiveShadow = true;
+    table.castShadow = true;
     this.scene.add(table);
+
+    const rail = new THREE.Mesh(
+      new THREE.CylinderGeometry(6.48, 6.48, 0.5, 64),
+      new THREE.MeshStandardMaterial({ color: 0x24170f, roughness: 0.48, metalness: 0.08 })
+    );
+    rail.position.y = -0.47;
+    rail.receiveShadow = true;
+    this.scene.add(rail);
 
     const rim = new THREE.Mesh(
       new THREE.TorusGeometry(6.25, 0.18, 16, 128),
-      new THREE.MeshStandardMaterial({ color: 0x111827, roughness: 0.45, metalness: 0.25 })
+      new THREE.MeshStandardMaterial({ color: 0x8a6533, roughness: 0.3, metalness: 0.5 })
     );
     rim.rotation.x = Math.PI / 2;
     rim.position.y = -0.05;
@@ -169,7 +206,16 @@ export class TableView {
       new THREE.MeshStandardMaterial({ color: 0xfbbf24, roughness: 0.35, metalness: 0.2 })
     );
     this.dealerMarker.position.y = 0.02;
+    this.dealerMarker.castShadow = true;
     this.scene.add(this.dealerMarker);
+
+    this.turnMarker = new THREE.Mesh(
+      new THREE.TorusGeometry(0.72, 0.035, 10, 48),
+      new THREE.MeshBasicMaterial({ color: 0x67e8f9, transparent: true, opacity: 0.75 })
+    );
+    this.turnMarker.rotation.x = Math.PI / 2;
+    this.turnMarker.position.y = 0.025;
+    this.scene.add(this.turnMarker);
 
     this.scene.add(this.cardsGroup);
 
@@ -196,6 +242,13 @@ export class TableView {
   }
 
   setState(gs: GameState | null) {
+    if (gs) {
+      this.animationMode = this.lastDeckSeed !== gs.round.deckSeed
+        ? "deal"
+        : (!this.lastReveal && !!gs.round.reveal ? "reveal" : "none");
+      this.lastDeckSeed = gs.round.deckSeed;
+      this.lastReveal = !!gs.round.reveal;
+    }
     this.lastGs = gs;
     this.dirty = true;
   }
@@ -258,6 +311,9 @@ export class TableView {
     const inwardZ = Math.cos(dealerAng) * 1.2;
     this.dealerMarker.position.set(dealerPos.x + inwardX, 0.03, dealerPos.z + inwardZ);
 
+    const turnPos = this.playerAnchorPosition(gs, gs.round.turnIndex, n, act);
+    this.turnMarker.position.set(turnPos.x, 0.025, turnPos.z);
+
     // reveal means show all face-up
     const reveal = !!gs.round.reveal;
 
@@ -296,6 +352,8 @@ export class TableView {
           side: THREE.DoubleSide,
         });
         const mesh: CardMesh = new THREE.Mesh(geo, mat);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
 
         // Lay card flat face-up on table then orient around Y.
         // X = -PI/2 lays the plane flat (face up).
@@ -310,11 +368,33 @@ export class TableView {
         // stagger y slightly per card to prevent z-fighting
         const yPos = cardY + ci * 0.004;
 
-        mesh.position.set(
+        const target = new THREE.Vector3(
           pos.x + dx * tangentX,
           yPos,
           pos.z + dx * tangentZ
         );
+
+        if (this.animationMode === "deal") {
+          mesh.position.set(0, 1.1, 0);
+          mesh.scale.setScalar(0.12);
+          mesh.userData.animation = {
+            type: "deal",
+            target,
+            start: performance.now() + seat * 65 + ci * 45,
+            duration: 520,
+          };
+        } else if (this.animationMode === "reveal") {
+          mesh.position.copy(target);
+          mesh.scale.x = 1;
+          mesh.userData.animation = {
+            type: "reveal",
+            target,
+            start: performance.now() + seat * 70 + ci * 35,
+            duration: 360,
+          };
+        } else {
+          mesh.position.copy(target);
+        }
 
         this.cardsGroup.add(mesh);
       }
@@ -340,6 +420,29 @@ export class TableView {
       this.rebuildFromState(this.lastGs);
       this.dirty = false;
     }
+    const now = performance.now();
+    for (const child of this.cardsGroup.children) {
+      const mesh = child as CardMesh;
+      const animation = mesh.userData.animation as { type: "deal" | "reveal"; target: THREE.Vector3; start: number; duration: number } | undefined;
+      if (!animation || now < animation.start) continue;
+      const progress = Math.min(1, (now - animation.start) / animation.duration);
+      const eased = 1 - Math.pow(1 - progress, 3);
+      if (animation.type === "deal") {
+        mesh.position.lerpVectors(new THREE.Vector3(0, 1.1, 0), animation.target, eased);
+        const scale = 0.12 + eased * 0.88;
+        mesh.scale.setScalar(scale);
+      } else {
+        mesh.scale.x = Math.max(0.04, Math.abs(progress * 2 - 1));
+      }
+      if (progress === 1) {
+        mesh.position.copy(animation.target);
+        mesh.scale.setScalar(1);
+        delete mesh.userData.animation;
+      }
+    }
+    const pulse = 1 + Math.sin(now * 0.004) * 0.09;
+    this.turnMarker.scale.setScalar(pulse);
+    this.turnMarker.material.opacity = 0.62 + Math.sin(now * 0.004) * 0.2;
     this.controls?.update();
     this.renderer.render(this.scene, this.camera);
   }

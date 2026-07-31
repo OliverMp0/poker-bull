@@ -1,5 +1,5 @@
 import "./style.css";  
-  
+import "./style.css";
 import type { Call, CallKind, GameState, Rank } from "./game/types";  
 import { newGame, doRaise, doChallenge, resolveRevealAndNextRound, canRaise } from "./game/engine";  
 import { callToString, isStructurallyValidCall, RANKS_DESC } from "./game/calls";  
@@ -8,10 +8,12 @@ import { chooseBotAction } from "./bot/simpleBot";
 import { chooseHardBotAction } from "./bot/hardBot";
 import { OnlineClient, OnlineHost, type ClientMessage, type OnlineAction, type ServerMessage } from "./online";
 import { TableView } from "./view/table";  
+import { sounds } from "./audio";
   
 const allCallsSorted = generateAllCallsSorted();  
   
 const canvas = document.getElementById("c") as HTMLCanvasElement;  
+const appEl = document.getElementById("app")!;
 const view = new TableView(canvas);  
   
 let gs: GameState | null = null;  
@@ -35,11 +37,17 @@ const historyEl = document.getElementById("history")!;
 const raiseBtn = document.getElementById("raiseBtn") as HTMLButtonElement;  
 const challengeBtn = document.getElementById("challengeBtn") as HTMLButtonElement;  
 const rulesBtn = document.getElementById("rulesBtn") as HTMLButtonElement;
+const soundBtn = document.getElementById("soundBtn") as HTMLButtonElement;
 const startRulesBtn = document.getElementById("startRulesBtn") as HTMLButtonElement;
 const rulesModal = document.getElementById("rulesModal")!;
 const closeRulesBtn = document.getElementById("closeRules") as HTMLButtonElement;
 const closeRulesFooterBtn = document.getElementById("closeRulesFooter") as HTMLButtonElement;
 let rulesTrigger: HTMLButtonElement = rulesBtn;
+let audioDeckSeed: number | null = null;
+let audioCall = "";
+let audioReveal = false;
+let audioTurnIndex: number | null = null;
+let audioWinnerIndex: number | null = null;
   
 // Start overlay  
 const startOverlay = document.getElementById("startOverlay")!;  
@@ -92,6 +100,26 @@ const announcementEl = document.getElementById("announcement")!;
 let announcementTimer: number | null = null;
 
 // --- boot ---  
+function updateSoundButton(): void {
+  const muted = sounds.isMuted();
+  soundBtn.textContent = muted ? "Sound off" : "Sound on";
+  soundBtn.setAttribute("aria-label", muted ? "Enable sound" : "Mute sound");
+  soundBtn.setAttribute("aria-pressed", String(muted));
+}
+
+function showTableImpact(): void {
+  appEl.classList.remove("impact");
+  void appEl.offsetWidth;
+  appEl.classList.add("impact");
+  window.setTimeout(() => appEl.classList.remove("impact"), 420);
+}
+
+updateSoundButton();
+soundBtn.onclick = () => {
+  sounds.toggleMuted();
+  updateSoundButton();
+};
+
 gameModeSel.onchange = () => {
   const online = gameModeSel.value === "online";
   localSetup.classList.toggle("hidden", online);
@@ -112,6 +140,7 @@ joinBtn.onclick = () => joinOnlineRoom();
 startOnlineBtn.onclick = () => startHostedGame();
 
 function openRules(trigger: HTMLButtonElement): void {
+  sounds.play("click");
   rulesTrigger = trigger;
   rulesModal.classList.remove("hidden");
   closeRulesBtn.focus();
@@ -136,6 +165,7 @@ document.addEventListener("keydown", (event) => {
 raiseBtn.onclick = () => openRaiseModal();  
 challengeBtn.onclick = () => {  
   if (!gs) return;  
+  sounds.play("challenge");
   if (onlineGame) {
     submitOnlineAction({ type: "CHALLENGE" });
     return;
@@ -460,6 +490,8 @@ function showContinue(fn: () => void) {
 function showAnnouncement(text: string, duration = 1200) {
   if (announcementTimer !== null) window.clearTimeout(announcementTimer);
   announcementEl.textContent = text;
+  announcementEl.classList.remove("visible");
+  void announcementEl.offsetWidth;
   announcementEl.classList.add("visible");
   announcementTimer = window.setTimeout(() => {
     announcementEl.classList.remove("visible");
@@ -471,6 +503,29 @@ function syncUI() {
   if (!gs) return;  
   
   view.setState(gs);  
+
+  const currentCall = gs.round.lastCall ? callToString(gs.round.lastCall) : "";
+  if (audioDeckSeed !== gs.round.deckSeed) {
+    sounds.play("deal");
+    audioDeckSeed = gs.round.deckSeed;
+    audioCall = currentCall;
+    audioReveal = !!gs.round.reveal;
+  } else if (!audioReveal && !!gs.round.reveal) {
+    sounds.play("reveal");
+    showTableImpact();
+    audioReveal = true;
+  } else if (currentCall && currentCall !== audioCall) {
+    sounds.play("raise");
+    audioCall = currentCall;
+  }
+
+  if (gs.gameOverWinnerIndex !== null && audioWinnerIndex !== gs.gameOverWinnerIndex) {
+    sounds.play("win");
+    audioWinnerIndex = gs.gameOverWinnerIndex;
+  } else if (gs.round.turnIndex === localPlayerIndex && audioTurnIndex !== localPlayerIndex && audioDeckSeed !== null) {
+    sounds.play("turn");
+  }
+  audioTurnIndex = gs.round.turnIndex;
   
   const turnP = gs.players[gs.round.turnIndex];  
   const dealerP = gs.players[gs.round.dealerIndex];  
@@ -526,6 +581,7 @@ function tickBots() {
       ? chooseHardBotAction(gs, ti, allCallsSorted)
       : chooseBotAction(gs, ti, allCallsSorted);  
     if (action.type === "CHALLENGE") {  
+      sounds.play("challenge");
       doChallenge(gs, ti);  
       showAnnouncement(`${p.id} calls bullshit!`, 1800);
       syncUI();
@@ -564,6 +620,7 @@ function handleRevealIfAny() {
 // --- raise modal ---  
 function openRaiseModal() {  
   if (!gs) return;  
+  sounds.play("click");
   raiseErrorEl.textContent = "";  
   
   // populate kinds  
